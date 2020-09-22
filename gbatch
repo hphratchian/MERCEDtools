@@ -33,12 +33,14 @@
     $queue_flag     = "std.q";
     $mem_amount     = "96GB";
     $nproc          = 0;
-    $nproc_full     = 20;
     $nproc_std      = 20;
     $nproc_fast     = 20;
     $nproc_long     = 24;
     $nlinda         = 0;
-    $walltime       = "01:00:00";
+    $walltime       = 0;
+    $walltime_std   = "23:55:00";
+    $walltime_fast  = "03:55:00";
+    $walltime_long  = "335:55:00";
     $g_type         = "gdv";
     $g_module       = "gdv";
 #
@@ -64,7 +66,7 @@
         $nproc=$1;
       }elsif($temp =~ /^-nlinda=(\d+)$/i){
         $nlinda=$1;
-        die "\ngbatch does not yet allow Gaussian calculations employing Linda.\n\n";
+#hph        die "\ngbatch does not yet allow Gaussian calculations employing Linda.\n\n";
       }elsif($temp =~ /^-time=(\S+)$/i){
         $walltime = $1;
       }elsif($temp =~ /^-gdv$/i){
@@ -127,8 +129,6 @@
         $do_submission = 1;
       }elsif($temp =~ /^-nosub$/i){
         $do_submission = 0;
-      }elsif($temp =~ /^-fullq$/i){
-        $queue_flag = "full.q";
       }elsif($temp =~ /^-stdq$/i){
         $queue_flag = "std.q";
       }elsif($temp =~ /^-fastq$/i){
@@ -153,18 +153,15 @@
     }
     if(@filelist < 1){die "\nNo GAUSSIAN input files given!\n\n"}
     $qsub_file = $filelist[0];
-    unless($qsub_file =~ s/\.(?:gjf|com)/.sbatch/){
-      print "\n\nNOTE: Appending .sbatch\n\n";
-      $qsub_file .= ".sbatch";
-    }
+    $fileRoot = $filelist[0];
+    $fileRoot =~ s/\.(?:gjf|com)//;
+    $qsub_file = "$fileRoot.sbatch";
 #
 #   If the user hasn't specified nproc, set it to the queue-dependent
 #   default value.
 #
     unless($nproc){
-      if($queue_flag eq "full.q"){
-        $nproc = $nproc_full;
-      }elsif($queue_flag eq "std.q"){
+      if($queue_flag eq "std.q"){
         $nproc = $nproc_std;
       }elsif($queue_flag eq "fast.q"){
         $nproc = $nproc_fast;
@@ -172,6 +169,21 @@
         $nproc = $nproc_long;
       }else{
         die "\n\nLogic error setting default nproc setting based on queue.\n\n";
+      }
+    }
+#
+#   If the user hasn't specified walltime, set it to the queue-dependent
+#   default value.
+#
+    unless($walltime){
+      if($queue_flag eq "std.q"){
+        $walltime = $walltime_std;
+      }elsif($queue_flag eq "fast.q"){
+        $walltime = $walltime_fast;
+      }elsif($queue_flag eq "long.q"){
+        $walltime = $walltime_long;
+      }else{
+        die "\n\nLogic error setting default walltime setting based on queue.\n\n";
       }
     }
 #
@@ -193,23 +205,6 @@
       $mem_requirement = $1 * 1024;
     }else{
       die "The units for requested memory allocation are invalid. -mem=$mem_amount\n\n";
-    }
-#
-#   Determine the number of slots and the parallel environment to request
-#   from the scheduler.
-#
-    if($nlinda){
-      $nslots = $nlinda*$nproc;
-      if($nproc == 20){
-        $pe_type = "linda-20smp";
-      }elsif($nproc == 24){
-        $pe_type = "linda-24smp";
-      }else{
-        die "\n\nInvalid number of SMPs ($nproc) requested with Linda workers.\n\n";
-      }
-    }else{
-      $nslots = $nproc;
-      $pe_type = "smp";
     }
 #
 #   Put together the list of Gaussian command line switches controlling
@@ -301,10 +296,18 @@
     print QSUBFILE "#SBATCH -o $job_name.qlog\n";
     print QSUBFILE "#SBATCH -p $queue_flag\n";
     print QSUBFILE "#SBATCH --mem=$mem_requirement\n";
-    print QSUBFILE "#SBATCH --nodes=1\n";
-    print QSUBFILE "#SBATCH --ntasks=$nproc\n";
+    if($nlinda){
+      print QSUBFILE "#SBATCH --nodes=$nlinda\n";
+      print QSUBFILE "#SBATCH --ntasks-per-node=$nproc\n";
+    }else{
+      print QSUBFILE "#SBATCH --nodes=1\n";
+      print QSUBFILE "#SBATCH --ntasks=$nproc\n";
+    }
 #hph    print QSUBFILE "#SBATCH --exclusive\n";
     print QSUBFILE "#SBATCH --time=$walltime\n";
+    if($nlinda){
+      print QSUBFILE "#SBATCH --exclude=mrcd[01-32]\n";
+    }
 #
     print QSUBFILE "#\n";
     print QSUBFILE "# Set up the Gaussian environment and prevent core files.\n";
@@ -325,8 +328,10 @@
     if($nlinda){
       print QSUBFILE "#\n";
       print QSUBFILE "# Set things up for Linda.\n";
-      print QSUBFILE "setenv GAUSS_LFLAGS \'-opt \"Tsnet.Node.lindarsharg: ssh\"\'\n";
-      print QSUBFILE "set MY_LINDA_WORKERS=`pre-linda \$PE_HOSTFILE $nproc`\n";
+      print QSUBFILE "set NODELISTFILE = \"$fileRoot.nodes.\$SLURM_JOBID\"\n";
+      print QSUBFILE "scontrol show hostname > \$NODELISTFILE\n";
+      print QSUBFILE "set MY_LINDA_WORKERS = `/home/hhratchian/SLURM-Linda/slurmPreLinda \$NODELISTFILE`\n";
+#hph      print QSUBFILE "setenv GAUSS_LFLAGS \'-opt \"Tsnet.Node.lindarsharg: ssh\"\'\n";
     }
     print QSUBFILE "#\n";
     print QSUBFILE "# Run Gaussian...\n";
@@ -552,8 +557,6 @@ scratch directory.
 
 =item B<-stdq>
 
-=item B<-fullq>
-
 =item B<-fastq>
 
 =item B<-longq>
@@ -566,13 +569,10 @@ jobs are submitted.
 1. The standard queue (known to the queue system as F<std.q> and requested
    with the switch B<-stdq>). This queue has a 24 hour wall clock limit.
 
-2. The full queue (known to the queue system as F<full.q> and requested
-   with the switch B<-fullq>). This queue has a 24 hour wall clock limit.
-
-3. The fast queue (known to the queue system as F<fast.q> and requested
+2. The fast queue (known to the queue system as F<fast.q> and requested
    with the switch B<-fastq>).
 
-4. The long queue (known to the queue system as F<long.q> and requested
+3. The long queue (known to the queue system as F<long.q> and requested
    with the switch B<-longq>).
 
 =back
@@ -616,12 +616,22 @@ requested.
 
 Version: B<gbatch> for B<F<MERCED>> submissions.
 
-Latest Modification(s): June 27, 2020.
+Latest Modification(s): September 21, 2020.
 
 
 =head1 MODIFICATION HISTORY
 
 =over
+
+=item September 21, 2020
+
+Wall time limits have been modified to have queue-dependent defaults. The
+defauls are 5 minutes less than the queue limit. Also, references to the
+full.q queue has been removed.
+
+=item September 20, 2020
+
+Linda functionality has been added. Linda is indicated using switch -nlinda=N.
 
 =item June 27, 2020
 
