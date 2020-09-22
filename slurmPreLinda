@@ -1,0 +1,29 @@
+#!/usr/bin/perl
+#
+# This script is used to process a SLURM generated host list for use in
+# Linda jobs with Gaussian calculations on MERCED. Two arguments are
+# required -- (1) the SLURM job ID number; and (2) the number of
+# share-memory processors requested for EACH Linda worker. The output of
+# this script is a line that can be used in the Gaussian command-line
+# invocation to specify Linda workers.
+#
+#
+# Hrant P. Hratchian
+# University of California, Merced
+# hhratchian@ucmerced.edu
+#
+#
+#
+#   Pick-up argument name.
+#
+    $filename = $ARGV[0];
+    chomp($jobid);
+#
+#   Read the set-up node list file and generate a string that can be used
+#   by Gaussian for defining Linda workers.
+#
+    @temp = `cat $filename`;
+    chomp(@temp);
+    $linda_workers_line = join "," , @temp;
+    $linda_workers_line =~ s/,/-ib,/g;
+    print "$linda_workers_line-ib";
