@@ -330,7 +330,7 @@
       print QSUBFILE "# Set things up for Linda.\n";
       print QSUBFILE "set NODELISTFILE = \"$fileRoot.nodes.\$SLURM_JOBID\"\n";
       print QSUBFILE "scontrol show hostname > \$NODELISTFILE\n";
-      print QSUBFILE "set MY_LINDA_WORKERS = `/home/hhratchian/SLURM-Linda/slurmPreLinda \$NODELISTFILE`\n";
+      print QSUBFILE "set MY_LINDA_WORKERS = `/opt/gaussian/slurmPreLinda \$NODELISTFILE`\n";
 #hph      print QSUBFILE "setenv GAUSS_LFLAGS \'-opt \"Tsnet.Node.lindarsharg: ssh\"\'\n";
     }
     print QSUBFILE "#\n";
@@ -616,12 +616,16 @@ requested.
 
 Version: B<gbatch> for B<F<MERCED>> submissions.
 
-Latest Modification(s): September 21, 2020.
+Latest Modification(s): September 22, 2020.
 
 
 =head1 MODIFICATION HISTORY
 
 =over
+
+=item September 22, 2020
+
+Bug fixes.
 
 =item September 21, 2020
 
